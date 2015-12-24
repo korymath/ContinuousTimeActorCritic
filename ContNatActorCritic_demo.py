@@ -22,7 +22,7 @@ from tiles import *
 
 # plt.xkcd()  # Yes...
 
-tmax = 300000
+tmax = 3000
 
 t = tmax*np.linspace(0, 1, tmax, endpoint=False)
 
@@ -276,6 +276,8 @@ for i in tqdm(range(tmax)):
     
     elS = lambd * elS + np.multiply(((np.power((a - agentMean[i]),2) / np.power(agentStd[i],2)) - 1),x)
     wS = wS + alphaS * delta[i] * elS
+    
+print "Cumulative Reward: " + str(np.cumsum(reward)[-1:])
 
 #     print 'Step: ' + str(i)
 #     print 'Joint Angle: ' + str(jointAngle[i]) + ' rads'
