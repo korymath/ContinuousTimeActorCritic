@@ -277,7 +277,11 @@ for i in tqdm(range(tmax)):
     elS = lambd * elS + np.multiply(((np.power((a - agentMean[i]),2) / np.power(agentStd[i],2)) - 1),x)
     wS = wS + alphaS * delta[i] * elS
     
+<<<<<<< Updated upstream
 print "Cumulative Reward: " + str(np.cumsum(reward)[-1:])
+=======
+print np.cumsum(reward)[-1:]
+>>>>>>> Stashed changes
 
 #     print 'Step: ' + str(i)
 #     print 'Joint Angle: ' + str(jointAngle[i]) + ' rads'
