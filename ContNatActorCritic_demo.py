@@ -1,14 +1,14 @@
 
 # coding: utf-8
 
-# In[255]:
+# In[261]:
 
-get_ipython().magic(u'matplotlib inline')
+# %matplotlib inline
 
 
-# In[256]:
+# In[262]:
 
-import matplotlib.pyplot as plt
+# import matplotlib.pyplot as plt
 import numpy as np
 import time
 import math
@@ -18,9 +18,9 @@ from tqdm import tqdm
 from tiles import *
 
 
-# In[257]:
+# In[ ]:
 
-plt.xkcd()  # Yes...
+# plt.xkcd()  # Yes...
 
 tmax = 300000
 
@@ -35,12 +35,12 @@ for i in range(0, tmax, 4000):
     targetElbow[i+3000:i+4000] = math.pi/2
 
 # Two subplots, unpack the axes array immediately
-plt.figure(figsize=(40,40))
-f, (ax1, ax2) = plt.subplots(2, 1, sharey=False)
+# plt.figure(figsize=(40,40))
+# f, (ax1, ax2) = plt.subplots(2, 1, sharey=False)
 
-ax1.plot(t[0:30000], targetElbow[0:30000])
-ax1.set_ylim([-math.pi/2, 4])
-ax1.set_title('Control Signal')
+# ax1.plot(t[0:30000], targetElbow[0:30000])
+# ax1.set_ylim([-math.pi/2, 4])
+# ax1.set_title('Control Signal')
 
 delay = 5
 
@@ -57,12 +57,12 @@ for i in range(1,tmax):
         
 simEMGdiff = simEMG[0:tmax]+noise
 
-ax2.plot(t[0:30000], simEMGdiff[0:30000])
-ax2.set_ylim(-1.5, 1.5)
-ax2.set_title('Simulated Noisy EMG Signal')
+# ax2.plot(t[0:30000], simEMGdiff[0:30000])
+# ax2.set_ylim(-1.5, 1.5)
+# ax2.set_title('Simulated Noisy EMG Signal')
 
 
-# In[258]:
+# In[ ]:
 
 # Implement a learning algorithm to try to fit the signal
 
@@ -289,7 +289,7 @@ for i in tqdm(range(tmax)):
 #     print '\n'
 
 
-# In[259]:
+# In[ ]:
 
 # # Visualize the learning    
 # fig = plt.figure()
@@ -329,7 +329,7 @@ for i in tqdm(range(tmax)):
 
 # ##### 
 
-# In[260]:
+# In[ ]:
 
 # fig = plt.figure()
 # ax1 = fig.add_subplot(111)
