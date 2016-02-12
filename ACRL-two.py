@@ -14,7 +14,9 @@ import time
 import math
 from collections import Counter
 from tqdm import tqdm
+import gc
 import sys
+from collections import deque
 
 import tiles
 
@@ -183,6 +185,7 @@ def getfeatvec(res, normS):
     # with exactly m features in x(s) active at any time
     # Binary feature vector has a length of 4636426 or
     # sum(np.power(np.array([5,8,12,20]),4)*25)+1
+
     x = np.zeros(np.power(res, numFeatures)*numTilings)
 
     tilesOut = tiles.tiles(numTilings, res, scalednormS)
@@ -201,16 +204,20 @@ def featurize(s):
 
     normS = normalize(s)
 
-    featvecs = np.zeros(sum(np.power(np.array(resolutions), numFeatures)*numTilings)+1)
-
-    # # TODO: concatenate efficiently
-    # for res in range(len(resolutions)):
-    #     featvecs[res] = getfeatvec(resolutions[res], normS)
-    #     print featvecs
-
+    # featvecs = np.zeros(sum(np.power(np.array(resolutions), numFeatures)*numTilings)+1)
+    # featvecs = list()
     # Concatenate the feature vectors and add
     # Single active baseline unit
-    # featvecs = [1]
+    featvecs = [1]
+
+    # featvecs = deque([1]) ## no time saving with the deque
+
+    # # TODO: concatenate efficiently
+
+    for res in range(len(resolutions)):
+        featvecs.extend(getfeatvec(resolutions[res], normS))
+
+    # finalVec = list(featvecs)
 
     return featvecs
 
