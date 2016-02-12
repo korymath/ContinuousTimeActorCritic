@@ -223,7 +223,6 @@ def featurize(s):
     # for a total of 15826 features
 
     startIdx = 1
-
     for res in range(len(resolutions)):
         endIdx = startIdx + np.power(resolutions[res], numFeatures)*numTilings
         featvecs[startIdx:endIdx] = getfeatvec(resolutions[res], normS)
