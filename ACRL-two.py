@@ -17,14 +17,20 @@ from tqdm import tqdm
 import gc
 import sys
 from collections import deque
+# from joblib import Parallel, delayed
+import multiprocessing as mp
 
 import tiles
+
+num_cores = mp.cpu_count()
+pool = mp.Pool(processes=num_cores)
+print("numCores = " + str(num_cores))
 
 # In[8]:
 
 # plt.xkcd()  # Yes...
 
-tmax = 300000
+tmax = 100000
 
 phase1maxT = 300000
 phase2maxT = phase1maxT + 300000
@@ -132,7 +138,7 @@ numFeatures = len(s)
 # m is the number of active features in the feature vector
 m = numTilings * len(resolutions) + 1
 
-gamma = 0.94 # 0.97
+gamma = 0.96  # 0.97
 lambd = 0.3
 
 # Different values for the 2013 paper
@@ -176,6 +182,7 @@ def normalize(state):
     # according to their minimum and maximum POSSIBLE VALUES!
     return (state - sMins) / (sMaxs - sMins)
 
+
 def getfeatvec(res, normS):
 
     scalednormS = [x * res for x in normS]
@@ -199,23 +206,54 @@ def getfeatvec(res, normS):
 
     return x
 
-
 def featurize(s):
 
     normS = normalize(s)
 
-    # featvecs = np.zeros(sum(np.power(np.array(resolutions), numFeatures)*numTilings)+1)
+    featvecs = np.zeros(sum(np.power(np.array(resolutions), numFeatures)*numTilings)+1)
+
+    featvecs[0] = 1
+
+    # Indexes for the resolutions
+    # 0 - active base
+    # 1    - 626 - res 5 - 625
+    # 626  - 2226 - res 8 - 1600
+    # 2226 - 5826 - res 12 - 3600
+    # 5826 - 15826 - res 20 - 10000
+    # for a total of 15826 features
+
+    startIdx = 1
+
+    for res in range(len(resolutions)):
+        endIdx = startIdx + np.power(resolutions[res], numFeatures)*numTilings
+        featvecs[startIdx:endIdx] = getfeatvec(resolutions[res], normS)
+        startIdx = endIdx
+
     # featvecs = list()
     # Concatenate the feature vectors and add
     # Single active baseline unit
-    featvecs = [1]
+
 
     # featvecs = deque([1]) ## no time saving with the deque
 
     # # TODO: concatenate efficiently
+    #
+    # results = [pool.apply(cube, args=(x,)) for x in range(1,7)]
+    # sys.exit()
+    #
 
-    for res in range(len(resolutions)):
-        featvecs.extend(getfeatvec(resolutions[res], normS))
+    # results = [pool.apply(getfeatvec, args=(5, normS))]
+    #
+    # print results
+    #
+    # results = [p.get() for p in results]
+    # results.sort() # to sort the results by input window width
+    # return results
+
+    # featvecs = Parallel(n_jobs=num_cores)(delayed(conAngIntToangVel)(2) for res in range(len(resolutions)))
+
+    # for res in range(len(resolutions)):
+    # featvecs = getfeatvec(resolutions[0], normS)
 
     # finalVec = list(featvecs)
 
@@ -355,9 +393,9 @@ for i in tqdm(range(tmax)):
             elS[:, j] = lambdw * elS[:, j] + np.multiply(((np.power((a[j] - agentMean[i, j]), 2) / np.power(agentStd[i, j], 2)) - 1), x)
             wS[:, j] = wS[:, j] + alphaS * delta[i] * elS[:, j]
 
-    # if (i%5000 == 0):
-    #     print 'Step: ' + str(i)
-    #     print np.sum(reward)
+    if (i%5000 == 0):
+        print 'Step: ' + str(i)
+        print np.sum(reward)
         
         
 #     print 'Joint Angle: ' + str(jointAngle[i,:]) + ' rads'
