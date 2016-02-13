@@ -5,6 +5,7 @@ import math
 _maxnumfloats = 20                      # maximum number of variables used in one grid
 _maxLongint = 2147483647                # maximum integer
 _maxLongintBy4 = _maxLongint // 4       # maximum integer divided by 4
+
 _randomTable = [random.randrange(_maxLongintBy4) for i in xrange(2048)]   #table of random numbers
 
 # The following are temporary variables used by tiles.
@@ -49,8 +50,6 @@ def tiles (numtilings, memctable, floats, ints=[]):
     """Returns list of numtilings tiles corresponding to variables (floats and ints),
         hashed down to mem, using ctable to check for collisions"""
 
-    hashfun = hashUNH
-
     numfloats = len(floats)
     numcoord = 1 + numfloats + len(ints)
     _coordinates = [0]*numcoord
@@ -58,6 +57,6 @@ def tiles (numtilings, memctable, floats, ints=[]):
     tlist = [None] * numtilings
     for j in xrange(numtilings):  # for each tiling
         fixcoord(_coordinates, numtilings, numfloats, j)
-        hnum = hashfun(_coordinates, numcoord, memctable)
+        hnum = hashUNH(_coordinates, numcoord, memctable)
         tlist[j] = hnum
     return tlist

@@ -16,6 +16,7 @@ from collections import Counter
 from tqdm import tqdm
 import gc
 import sys
+import collections
 from collections import deque
 # from joblib import Parallel, delayed
 import multiprocessing as mp
@@ -92,12 +93,12 @@ emgMaxs = np.amax(simEMGdiff, 0)
 # In[ ]:
 
 # Implement a learning algorithm to try to fit the signal
-numJoints = 2
+numJoints = 1
 numEMG = 1
 
 # define the state maximums and minimums
-sMins = np.r_[angleMins[:numJoints], emgMins[:numEMG]]
-sMaxs = np.r_[angleMaxs[:numJoints], emgMaxs[:numEMG]]
+sMins = np.r_[[0]*numJoints, emgMins[:numEMG]]
+sMaxs = np.r_[[math.pi]*numJoints, emgMaxs[:numEMG]]
 
 jointAngle = np.zeros((tmax, numJoints))
 
@@ -138,7 +139,7 @@ numFeatures = len(s)
 # m is the number of active features in the feature vector
 m = numTilings * len(resolutions) + 1
 
-gamma = 0.99  # 0.97
+gamma = 0.97  # 0.97
 lambd = 0.3
 
 # Different values for the 2013 paper
@@ -156,7 +157,7 @@ alphaS = alphaW # 0.25*alphaU # 0.01/m #
 featVecLength = sum(np.power(resolutions, numFeatures)*numTilings)+1
 
 # Initialize an empty feature vector
-featvec = np.zeros(featVecLength)
+fv = np.zeros(featVecLength)
 
 # Initialize a ones feature vector
 fvOnes = np.ones(featVecLength)
@@ -186,49 +187,85 @@ def normalize(state):
     # Normalize the state value given the maximum and minimum possible values
     # All components in s were normalized to the range [0, 1]
     # according to their minimum and maximum POSSIBLE VALUES!
+
+    # print state
+    normS = (state - sMins) / (sMaxs - sMins)
+    # print state, normS, sMins, sMaxs
+    # if (any(i < 0 for i in normS)):
+    #     sys.exit()
+
     return (state - sMins) / (sMaxs - sMins)
+
+
+# def idx(x, offset, res):
+#     # given a value and the tile offset, return the axis index from [0,res]
+#     # cast to the 8 bit integer
+#     return int(res-1 * (x + offset))
+
+# To capture different levels
+# of generalization, x(s) was a concatenation of NT = 25
+# incrementally offset tilings of s, each at four different resolution
+# levels NR = [5, 8, 12, 20], along with a single active
+# baseline unit
+
+#
+# def tilecode(numTilings, res, activetiles, normS):
+#     for n in range(numTilings):
+#         offset = n * (1.0 / res) / numTilings
+#         idx0 = idx(normS[0], offset, res)
+#         idx1 = idx(normS[1], offset, res)
+#         activetiles[n] = int((res**2 * n) + (res * idx0) + idx1)
+#     return activetiles
 
 
 def getfeatvec(res, normS):
 
+    ## pure pythong tilecoding
+    # activetiles = [-1]*numTilings
+    # tilesOut = tilecode(numTilings, res, activetiles, normS)
+
+    ## cython tilecoder is faster
     scalednormS = [x * res for x in normS]
+    tilesOut = tiles.tiles(numTilings, np.power(res, numFeatures)*numTilings, scalednormS)
 
-    # activetiles is the active tiles in this featurization
-    # This featurization should return a single binary feature vector
-    # with exactly m features in x(s) active at any time
-    # Binary feature vector has a length of 4636426 or
-    # sum(np.power(np.array([5,8,12,20]),4)*25)+1
-
-    activetiles = np.zeros(np.power(res, numFeatures)*numTilings)
-
-    tilesOut = tiles.tiles(numTilings, res, scalednormS)
-
-    for idx, val in enumerate(tilesOut):
-        # for each tile index put out by the tile coder
-        # we need to flip a bit in the feature vector
-        # this bit index is given by the value of the tile from the tile coder
-        # the index this value was at, the resolution of the tile
-        activetiles[val + (res**2 * idx)] = 1
-
-    return activetiles
+    return tilesOut
 
 
 def featurize(s, fv):
 
     normS = normalize(s)
 
-    # zero out the feature vector
-    fv[:] = 0
+    featidxlist = []
 
-    fv[0] = 1
+    # add zero offset for first features
+    reslist = np.r_[0, resolutions]
+    listoffset = np.cumsum([(reslist[res]**numFeatures) * numTilings for res in range(len(resolutions))])
 
-    startIdx = 1
     for res in range(len(resolutions)):
-        endIdx = startIdx + np.power(resolutions[res], numFeatures)*numTilings
-        fv[startIdx:endIdx] = getfeatvec(resolutions[res], normS)
-        startIdx = endIdx
 
-    return fv
+        # need to offset the feature list to avoid any collisions
+
+        newfeatures = getfeatvec(resolutions[res], normS)
+
+        # print newfeatures
+        # print newfeatures + listoffset[res]
+
+        featidxlist = np.r_[featidxlist, [x + listoffset[res] for x in newfeatures]]
+
+        ## need to collect all the lists of indexes and offset them accordingly
+        # offset by one for the active baseline feature
+        # featidx = [x+1 for x in featidx]
+
+    featidxlist = np.r_[0, featidxlist]
+    featidxlist = featidxlist.astype(int)
+
+    # print len(featidxlist)
+    # print [item for item, count in collections.Counter(featidxlist).items() if count > 1]
+
+    fv = [0] * fv
+    fv[featidxlist] = 1
+
+    return featidxlist, fv
 
 
 def getReward(newAngles,timeStep):
@@ -239,7 +276,7 @@ def getReward(newAngles,timeStep):
     # in all other cases, in essence penalizing the learning system
     # when the arm’s posture differed from the target posture.
 
-    target = targetAngles[timeStep,range(numJoints)]    
+    target = targetAngles[timeStep, range(numJoints)]
     absAngleError = np.abs(newAngles-target)
     
     if all(absAngleError < 0.1):
@@ -250,7 +287,7 @@ def getReward(newAngles,timeStep):
     return r
 
 
-def perform(vel,s,timeStep):
+def perform(vel, s, timeStep):
     # take the action and observe the new state and the reward 
     # new state is defined by the new joint angle
     # which is defined by the old joint angle and the new angular velocity
@@ -277,21 +314,17 @@ for i in tqdm(range(tmax)):
     jointAngle[i, :] = s[:numJoints]
 
     # Featurize the state
-    featvec = featurize(s, featvec)
+    featidxlist, featvec = featurize(s, fv)
 
     a = np.zeros(numJoints)
     angVels = np.zeros(numJoints)
 
     # Calculate the mean and standard deviation of the action selection
-    for j in range(numJoints):
-        agentMean[i, j] = np.dot(wU[:, j], featvec)
-        agentStd[i, j] = max(1, np.exp(np.dot(wS[:, j], featvec) + np.log(maxAngVelInt_stdC)))
+    agentMean[i, :] = np.sum(wU[featidxlist, :], axis=0)
+    agentStd[i, :] = np.maximum(np.ones(numJoints), np.exp(np.sum(wS[featidxlist, :], axis=0)) + np.log(maxAngVelInt_stdC))
 
-        # get the action from the normal distribution
-        # angular velocity commands are sent to joints (simulated servos)
-        # as integers in the range [−maxAngVelInt_stdC, maxAngVelInt_stdC]
-        a[j] = round(np.random.normal(agentMean[i, j], agentStd[i, j]))
-
+    # Sample the distribution to get an angle
+    a = [np.random.normal(agentMean[i, j], agentStd[i, j]) for j in range(numJoints)]
     a = np.clip(a, -maxAngVelInt_stdC, maxAngVelInt_stdC)
 
     # Convert the action to an angular velocity
@@ -300,74 +333,46 @@ for i in tqdm(range(tmax)):
     # Take action a and observe the reward, r, and the new state, s
     reward[i], s = perform(angVels, s, i)
 
-    if numJoints > 1:
-        # Initially, parameter vectors for the wrist and elbow joints
-        # were each trained in isolation for 100k time steps;
-        if i < phase1maxT:
-            # set joint 2 to desired position
-            s[1] = targetAngles[i, 1]
-
-        elif i < phase2maxT:
-            # set joint 1 to desired position
-            s[0] = targetAngles[i, 0]
-
-    # save the old state feature vector
-    x = featvec
-
+    # Featurize the new state
     # update the feature vector
-    featvec = featurize(s, featvec)
+    newfeatidxlist, newfeatvec = featurize(s, fv)
 
     # Calculate the TD Error based on the old state and the new state
-    delta[i] = reward[i] + (gamma * np.dot(v, featvec)) - np.dot(v, x)
+    delta[i] = reward[i] + (gamma * np.sum(v[newfeatidxlist]) - np.sum(v[featidxlist]))
 
     # Critic's eligibility traces
     # Updated eligibility trace from the 2013 paper
     # replacing eligibility traces in the critic used to accelerate learning
-    elV = (lambdv * elV) + x
-    elV = np.minimum(fvOnes, elV)
+    # elV = np.minimum(fvOnes, elV)
+
+    elV = (lambdv * elV) + featvec
 
     # Critic's parameter vector
     v += (alphaV * delta[i] * elV)
 
-    if numJoints > 1:
-    # Initially, parameter vectors for the wrist and elbow joints
-    # were each trained in isolation for 100k time steps;
-        if i < phase1maxT:
-            # learn parameter vectors for joint 1
-            # set joint 2 to desired position
-            elU[:,0] = lambdw * elU[:,0] + np.multiply((a[0] - agentMean[i,0]),x)
-            wU[:,0] = wU[:, 0] + alphaU * delta[i] * elU[:,0]
-            elS[:,0] = lambdw * elS[:,0] + np.multiply(((np.power((a[0] - agentMean[i,0]),2) / np.power(agentStd[i,0],2)) - 1),x)
-            wS[:,0] = wS[:, 0] + alphaS * delta[i] * elS[:,0]
-
-        elif i < phase2maxT:
-            # learn parameter vectors for joint 2
-            # set joint 1 to desired position
-            elU[:,1] = lambdw * elU[:,1] + np.multiply((a[1] - agentMean[i,1]),x)
-            wU[:,1] = wU[:,1] + alphaU * delta[i] * elU[:,1]
-            elS[:,1] = lambdw * elS[:,1] + np.multiply(((np.power((a[1] - agentMean[i,1]),2) / np.power(agentStd[i,1],2)) - 1),x)
-            wS[:,1] = wS[:,1] + alphaS * delta[i] * elS[:,1]
-
-        else:
-            for j in range(numJoints):
-                # Actors parameters (eligibiliy traces and weight vectors)
-                elU[:, j] = lambdw * elU[:, j] + np.multiply((a[j] - agentMean[i, j]), x)
-                wU[:, j] = wU[:, j] + alphaU * delta[i] * elU[:, j]
-                elS[:, j] = lambdw * elS[:, j] + np.multiply(((np.power((a[j] - agentMean[i, j]), 2) / np.power(agentStd[i, j], 2)) - 1), x)
-                wS[:, j] = wS[:, j] + alphaS * delta[i] * elS[:, j]
-    else:
-        for j in range(numJoints):
-            # Actors parameters (eligibiliy traces and weight vectors)
-            elU[:, j] = lambdw * elU[:, j] + np.multiply((a[j] - agentMean[i, j]), x)
-            wU[:, j] += alphaU * delta[i] * elU[:, j]
-            elS[:, j] = lambdw * elS[:, j] + np.multiply(((np.power((a[j] - agentMean[i, j]), 2) / np.power(agentStd[i, j], 2)) - 1), x)
-            wS[:, j] += alphaS * delta[i] * elS[:, j]
+    for j in range(numJoints):
+        # Actors parameters (eligibiliy traces and weight vectors)
+        elU[:, j] = lambdw * elU[:, j] + np.multiply((a[j] - agentMean[i, j]), featvec)
+        wU[:, j] += alphaU * delta[i] * elU[:, j]
+        elS[:, j] = lambdw * elS[:, j] + np.multiply(((np.power((a[j] - agentMean[i, j]), 2) / np.power(agentStd[i, j], 2)) - 1), featvec)
+        wS[:, j] += alphaS * delta[i] * elS[:, j]
 
     if (i%2000 == 0):
         print 'Step: ' + str(i)
         print np.sum(reward)
         
-        
+
+
+
+
+
+
+
+
+
+
+
+
 #     print 'Joint Angle: ' + str(jointAngle[i,:]) + ' rads'
 #     print 'Target Angle: ' + str(targetAngles[i,range(numJoints)]) + ' rads'
 #     print 'Agent Mean: ' + str(agentMean[i,:])

@@ -16,6 +16,7 @@ from collections import Counter
 from tqdm import tqdm
 import gc
 import sys
+import collections
 from collections import deque
 # from joblib import Parallel, delayed
 import multiprocessing as mp
@@ -92,12 +93,12 @@ emgMaxs = np.amax(simEMGdiff, 0)
 # In[ ]:
 
 # Implement a learning algorithm to try to fit the signal
-numJoints = 2
+numJoints = 1
 numEMG = 1
 
 # define the state maximums and minimums
-sMins = np.r_[angleMins[:numJoints], emgMins[:numEMG]]
-sMaxs = np.r_[angleMaxs[:numJoints], emgMaxs[:numEMG]]
+sMins = np.r_[[0]*numJoints, emgMins[:numEMG]]
+sMaxs = np.r_[[math.pi]*numJoints, emgMaxs[:numEMG]]
 
 jointAngle = np.zeros((tmax, numJoints))
 
@@ -186,12 +187,38 @@ def normalize(state):
     # Normalize the state value given the maximum and minimum possible values
     # All components in s were normalized to the range [0, 1]
     # according to their minimum and maximum POSSIBLE VALUES!
+
+    # print state
+    normS = (state - sMins) / (sMaxs - sMins)
+    # print state, normS, sMins, sMaxs
+    # if (any(i < 0 for i in normS)):
+    #     sys.exit()
+
     return (state - sMins) / (sMaxs - sMins)
 
 
-def getfeatvec(res, normS):
+def idx(x, offset, res):
+    # given a value and the tile offset, return the axis index from [0,res]
+    return math.floor(res-1 * (x + offset))
 
-    scalednormS = [x * res for x in normS]
+# To capture different levels
+# of generalization, x(s) was a concatenation of NT = 25
+# incrementally offset tilings of s, each at four different resolution
+# levels NR = [5, 8, 12, 20], along with a single active
+# baseline unit
+
+def tilecode(numTilings, res, activetiles, normS):
+    for n in range(numTilings):
+        offset = n * (1.0 / res) / numTilings
+        idx0 = idx(normS[0], offset, res)
+        idx1 = idx(normS[1], offset, res)
+        # print n, normS, res, idx0, idx1
+        activetiles[n] = int((res**2 * n) + (res * idx0) + idx1)
+
+    return activetiles
+
+
+def getfeatvec(res, normS):
 
     # activetiles is the active tiles in this featurization
     # This featurization should return a single binary feature vector
@@ -199,34 +226,61 @@ def getfeatvec(res, normS):
     # Binary feature vector has a length of 4636426 or
     # sum(np.power(np.array([5,8,12,20]),4)*25)+1
 
-    activetiles = np.zeros(np.power(res, numFeatures)*numTilings)
+    # activetiles = np.zeros(np.power(res, numFeatures)*numTilings)
 
-    tilesOut = tiles.tiles(numTilings, res, scalednormS)
+    activetiles = [-1]*numTilings
+    tilesOut = tilecode(numTilings, res, activetiles, normS)
 
-    for idx, val in enumerate(tilesOut):
-        # for each tile index put out by the tile coder
-        # we need to flip a bit in the feature vector
-        # this bit index is given by the value of the tile from the tile coder
-        # the index this value was at, the resolution of the tile
-        activetiles[val + (res**2 * idx)] = 1
+    # scalednormS = [x * res for x in normS]
+    # tilesOut = tiles.tiles(numTilings, np.power(res, numFeatures)*numTilings, scalednormS)
 
-    return activetiles
+    # for idx, val in enumerate(tilesOut):
+    #     # for each tile index put out by the tile coder
+    #     # we need to flip a bit in the feature vector
+    #     # this bit index is given by the value of the tile from the tile coder
+    #     # the index this value was at, the resolution of the tile
+    #     activetiles[val + (res**2 * idx)] = 1
+
+    return tilesOut
 
 
 def featurize(s, fv):
 
     normS = normalize(s)
 
-    # zero out the feature vector
-    fv[:] = 0
+    # print len(fv)
 
+    fv[:] = 0
     fv[0] = 1
 
-    startIdx = 1
     for res in range(len(resolutions)):
-        endIdx = startIdx + np.power(resolutions[res], numFeatures)*numTilings
-        fv[startIdx:endIdx] = getfeatvec(resolutions[res], normS)
-        startIdx = endIdx
+        featIdx = getfeatvec(resolutions[res], normS)
+        # print featIdx
+
+        # offset by one for the active baseline feature
+        featIdx = [x+1 for x in featIdx]
+
+        # print len(fv)
+
+        # print sum(fv)
+
+        fv[featIdx] = 1
+
+        # print sum(fv)
+
+        # test for duplicates
+        # print [item for item, count in collections.Counter(featIdx).items() if count > 1]
+
+    # # zero out the feature vector
+    # fv[:] = 0
+    #
+    # fv[0] = 1
+    #
+    # startIdx = 1
+    # for res in range(len(resolutions)):
+    #     endIdx = startIdx + np.power(resolutions[res], numFeatures)*numTilings
+    #     fv[startIdx:endIdx] = getfeatvec(resolutions[res], normS)
+    #     startIdx = endIdx
 
     return fv
 
@@ -250,7 +304,7 @@ def getReward(newAngles,timeStep):
     return r
 
 
-def perform(vel,s,timeStep):
+def perform(vel, s, timeStep):
     # take the action and observe the new state and the reward 
     # new state is defined by the new joint angle
     # which is defined by the old joint angle and the new angular velocity
@@ -263,6 +317,7 @@ def perform(vel,s,timeStep):
 
     # Define the new state space with the new angle and the emg information from the next step
     newAngles = np.clip((s[:numJoints] + (vel[:] * 0.005)), 0, math.pi)
+    # newAngles = s[:numJoints] + (vel[:] * 0.005)
 
     newS = np.hstack((newAngles, simEMG[timeStep, :numEMG]))
     
